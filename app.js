@@ -10,6 +10,37 @@
   };
 
   const GUEST_FAIL_MAX = 40;
+  const RECENT_KEY = "drazze_recent_v2";
+  const PROFILE_KEY = "drazze_profile";
+  const SETTINGS_KEY = "drazze_settings";
+
+  const STR = {
+    ru: {
+      chats: "Чаты",
+      calls: "Звонки",
+      contacts: "Контакты",
+      profile: "Профиль",
+      peerFallback: "Собеседник",
+      inviteCopied: "Ссылка скопирована.",
+      inviteManual: "Скопируйте вручную: ",
+      appInvite: "Приглашение в DrazzeAnonim: ",
+    },
+    en: {
+      chats: "Chats",
+      calls: "Calls",
+      contacts: "Contacts",
+      profile: "Profile",
+      peerFallback: "Peer",
+      inviteCopied: "Link copied.",
+      inviteManual: "Copy manually: ",
+      appInvite: "Join DrazzeAnonim: ",
+    },
+  };
+
+  let lang = "ru";
+  function t(k) {
+    return (STR[lang] && STR[lang][k]) || STR.ru[k] || k;
+  }
 
   /** @type {Peer | null} */
   let peer = null;
@@ -26,26 +57,35 @@
   let callTargetId = null;
 
   let displayName = "";
+  let peerDisplayName = "";
 
   let guestConnectFailures = 0;
   /** @type {ReturnType<typeof setTimeout> | null} */
   let guestRetryTimer = null;
 
   const cryptoState = {
-    /** @type {CryptoKeyPair | null} */
     keyPair: null,
-    /** @type {CryptoKey | null} */
     peerPublic: null,
-    /** @type {CryptoKey | null} */
     aesKey: null,
     ready: false,
   };
-  /** @type {object | null} */
   let pendingPeerHs = null;
 
+  const appEl = document.getElementById("app");
+  const paneShell = document.getElementById("pane-shell");
+  const paneChat = document.getElementById("pane-chat");
+
   const els = {
-    screenLobby: document.getElementById("screen-lobby"),
-    screenRoom: document.getElementById("screen-room"),
+    viewChats: document.getElementById("view-chats"),
+    viewCalls: document.getElementById("view-calls"),
+    viewContacts: document.getElementById("view-contacts"),
+    viewProfile: document.getElementById("view-profile"),
+    chatList: document.getElementById("chat-list"),
+    chatListSearch: document.getElementById("chat-list-search"),
+    contactsSearch: document.getElementById("contacts-search"),
+    contactsList: document.getElementById("contacts-list"),
+    newChatDrawer: document.getElementById("new-chat-drawer"),
+    btnToggleNew: document.getElementById("btn-toggle-new"),
     inputName: document.getElementById("input-name"),
     inputRoom: document.getElementById("input-room"),
     inputMessage: document.getElementById("input-message"),
@@ -54,7 +94,7 @@
     btnCopy: document.getElementById("btn-copy-link"),
     btnCall: document.getElementById("btn-call"),
     btnHangup: document.getElementById("btn-hangup"),
-    btnLeave: document.getElementById("btn-leave"),
+    btnBack: document.getElementById("btn-back"),
     btnSend: document.getElementById("btn-send"),
     formSend: document.getElementById("form-send"),
     messages: document.getElementById("messages"),
@@ -65,8 +105,202 @@
     callDock: document.getElementById("call-dock"),
     videoLocal: document.getElementById("video-local"),
     videoRemote: document.getElementById("video-remote"),
-    divider: document.querySelector(".divider"),
+    chatPeerTitle: document.getElementById("chat-peer-title"),
+    profileNick: document.getElementById("profile-nick"),
+    profileBio: document.getElementById("profile-bio"),
+    profileAvatar: document.getElementById("profile-avatar"),
+    btnSaveProfile: document.getElementById("btn-save-profile"),
+    btnInviteRef: document.getElementById("btn-invite-ref"),
+    setNotifyChat: document.getElementById("set-notify-chat"),
+    setNotifyCall: document.getElementById("set-notify-call"),
+    setLang: document.getElementById("set-lang"),
   };
+
+  function loadSettings() {
+    try {
+      const raw = localStorage.getItem(SETTINGS_KEY);
+      if (!raw) return;
+      const s = JSON.parse(raw);
+      if (els.setNotifyChat && typeof s.notifyChat === "boolean") els.setNotifyChat.checked = s.notifyChat;
+      if (els.setNotifyCall && typeof s.notifyCall === "boolean") els.setNotifyCall.checked = s.notifyCall;
+      if (s.lang === "en" || s.lang === "ru") {
+        lang = s.lang;
+        if (els.setLang) els.setLang.value = lang;
+        applyLangToNav();
+      }
+    } catch (_) {}
+  }
+
+  function saveSettings() {
+    const s = {
+      notifyChat: els.setNotifyChat ? els.setNotifyChat.checked : true,
+      notifyCall: els.setNotifyCall ? els.setNotifyCall.checked : true,
+      lang: lang,
+    };
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+  }
+
+  function applyLangToNav() {
+    document.documentElement.lang = lang;
+    document.querySelectorAll(".nav-item[data-nav]").forEach((btn) => {
+      const k = btn.getAttribute("data-nav");
+      const label = btn.querySelector(".nav-t");
+      if (!label) return;
+      if (k === "chats") label.textContent = t("chats");
+      if (k === "calls") label.textContent = t("calls");
+      if (k === "contacts") label.textContent = t("contacts");
+      if (k === "profile") label.textContent = t("profile");
+    });
+  }
+
+  function notifyAllowed(kind) {
+    if (kind === "call" && els.setNotifyCall && !els.setNotifyCall.checked) return false;
+    if (kind === "chat" && els.setNotifyChat && !els.setNotifyChat.checked) return false;
+    return true;
+  }
+
+  function loadProfile() {
+    try {
+      const raw = localStorage.getItem(PROFILE_KEY);
+      if (!raw) return;
+      const p = JSON.parse(raw);
+      if (p.nick && els.profileNick) els.profileNick.value = p.nick;
+      if (p.bio != null && els.profileBio) els.profileBio.value = p.bio;
+      syncNameFromProfile();
+      updateProfileAvatar();
+    } catch (_) {}
+  }
+
+  function saveProfile() {
+    const p = {
+      nick: (els.profileNick && els.profileNick.value.trim()) || "",
+      bio: (els.profileBio && els.profileBio.value.trim()) || "",
+    };
+    localStorage.setItem(PROFILE_KEY, JSON.stringify(p));
+    syncNameFromProfile();
+    updateProfileAvatar();
+  }
+
+  function syncNameFromProfile() {
+    const nick = els.profileNick ? els.profileNick.value.trim() : "";
+    if (els.inputName) els.inputName.value = nick || els.inputName.value;
+  }
+
+  function updateProfileAvatar() {
+    const nick = els.profileNick ? els.profileNick.value.trim() : "";
+    const letter = (nick || "?").charAt(0).toUpperCase();
+    if (els.profileAvatar) els.profileAvatar.textContent = letter;
+  }
+
+  function loadRecent() {
+    try {
+      const raw = sessionStorage.getItem(RECENT_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function saveRecent(list) {
+    sessionStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, 30)));
+  }
+
+  function upsertRecent(entry) {
+    let list = loadRecent();
+    list = list.filter((x) => x.id !== entry.id);
+    list.unshift({
+      id: entry.id,
+      title: entry.title || entry.id,
+      lastText: entry.lastText || "",
+      ts: entry.ts || Date.now(),
+    });
+    saveRecent(list);
+    renderChatList();
+    renderContacts();
+  }
+
+  function shortRoom(id) {
+    if (!id || id.length < 10) return id || "";
+    return id.slice(0, 6) + "…";
+  }
+
+  function renderChatList() {
+    if (!els.chatList) return;
+    const q = (els.chatListSearch && els.chatListSearch.value.trim().toLowerCase()) || "";
+    const list = loadRecent().filter((x) => !q || (x.title && x.title.toLowerCase().includes(q)) || (x.id && x.id.toLowerCase().includes(q)));
+    els.chatList.innerHTML = "";
+    if (!list.length) {
+      const li = document.createElement("li");
+      li.className = "tg-hint-list";
+      li.style.listStyle = "none";
+      li.textContent = lang === "en" ? "No chats yet. Tap + to start." : "Чатов пока нет. Нажмите ＋ чтобы начать.";
+      els.chatList.appendChild(li);
+      return;
+    }
+    list.forEach((item) => {
+      const li = document.createElement("li");
+      li.className = "chat-list-item";
+      li.setAttribute("role", "listitem");
+      const av = document.createElement("div");
+      av.className = "chat-avatar";
+      av.textContent = (item.title || item.id).charAt(0).toUpperCase();
+      const body = document.createElement("div");
+      body.className = "chat-item-body";
+      const title = document.createElement("div");
+      title.className = "chat-item-title";
+      title.textContent = item.title || item.id;
+      const sub = document.createElement("div");
+      sub.className = "chat-item-sub";
+      sub.textContent = item.lastText || item.id;
+      body.appendChild(title);
+      body.appendChild(sub);
+      li.appendChild(av);
+      li.appendChild(body);
+      li.addEventListener("click", () => {
+        if (els.inputRoom) els.inputRoom.value = item.id;
+        joinRoom(item.id);
+      });
+      els.chatList.appendChild(li);
+    });
+  }
+
+  function renderContacts() {
+    if (!els.contactsList) return;
+    const q = (els.contactsSearch && els.contactsSearch.value.trim().toLowerCase()) || "";
+    const list = loadRecent().filter((x) => !q || (x.title && x.title.toLowerCase().includes(q)) || (x.id && x.id.toLowerCase().includes(q)));
+    els.contactsList.innerHTML = "";
+    list.forEach((item) => {
+      const li = document.createElement("li");
+      li.className = "chat-list-item";
+      const av = document.createElement("div");
+      av.className = "chat-avatar";
+      av.textContent = (item.title || item.id).charAt(0).toUpperCase();
+      const body = document.createElement("div");
+      body.className = "chat-item-body";
+      const title = document.createElement("div");
+      title.className = "chat-item-title";
+      title.textContent = item.title || item.id;
+      const sub = document.createElement("div");
+      sub.className = "chat-item-sub";
+      sub.textContent = item.id;
+      body.appendChild(title);
+      body.appendChild(sub);
+      li.appendChild(av);
+      li.appendChild(body);
+      li.addEventListener("click", () => joinRoom(item.id));
+      els.contactsList.appendChild(li);
+    });
+  }
+
+  function navigateTo(tab) {
+    ["chats", "calls", "contacts", "profile"].forEach((name) => {
+      const v = document.getElementById("view-" + name);
+      if (v) v.classList.toggle("hidden", name !== tab);
+    });
+    document.querySelectorAll(".nav-item[data-nav]").forEach((btn) => {
+      btn.classList.toggle("is-active", btn.getAttribute("data-nav") === tab);
+    });
+  }
 
   function makeRoomId() {
     const bytes = new Uint8Array(8);
@@ -104,7 +338,18 @@
     els.inputRoom.value = roomFromHash;
     els.inputRoom.readOnly = true;
     els.btnCreate.hidden = true;
-    if (els.divider) els.divider.style.display = "none";
+  }
+
+  function openChatPane() {
+    appEl.classList.add("in-chat");
+    paneChat.classList.remove("hidden");
+    paneChat.setAttribute("aria-hidden", "false");
+  }
+
+  function closeChatPane() {
+    appEl.classList.remove("in-chat");
+    paneChat.classList.add("hidden");
+    paneChat.setAttribute("aria-hidden", "true");
   }
 
   function clearGuestRetry() {
@@ -115,10 +360,11 @@
   }
 
   function showRoomScreen(id) {
-    els.screenLobby.classList.add("hidden");
-    els.screenRoom.classList.remove("hidden");
+    peerDisplayName = t("peerFallback");
+    if (els.chatPeerTitle) els.chatPeerTitle.textContent = peerDisplayName;
+    openChatPane();
     els.roomIdDisplay.textContent = id;
-    setConnStatus("wait", "Подключение…");
+    setConnStatus("wait", "…");
     els.messages.innerHTML = "";
     els.inputMessage.value = "";
     els.inputMessage.disabled = true;
@@ -128,19 +374,18 @@
   }
 
   function showLobbyScreen() {
-    els.screenRoom.classList.add("hidden");
-    els.screenLobby.classList.remove("hidden");
+    closeChatPane();
+    els.connStatus.className = "conn-pill conn-wait";
+    els.roomHint.hidden = true;
     els.inputRoom.readOnly = false;
     els.btnCreate.hidden = false;
-    if (els.divider) els.divider.style.display = "";
-    els.connStatus.className = "status status-wait";
-    els.roomHint.hidden = true;
     resetVideosUi();
+    renderChatList();
   }
 
   function setConnStatus(kind, text) {
     els.connStatus.textContent = text;
-    els.connStatus.className = "status " + (kind === "ok" ? "status-ok" : kind === "err" ? "status-err" : "status-wait");
+    els.connStatus.className = "conn-pill " + (kind === "ok" ? "conn-ok" : kind === "err" ? "conn-err" : "conn-wait");
   }
 
   function resetCrypto() {
@@ -197,6 +442,7 @@
     guestConnectFailures = 0;
     cleanupCall();
     resetCrypto();
+    peerDisplayName = "";
     if (dataConn) {
       try {
         dataConn.close();
@@ -216,28 +462,39 @@
       history.replaceState(null, "", window.location.pathname + window.location.search);
     }
     showLobbyScreen();
+    navigateTo("chats");
   }
 
   function addSystemLine(text) {
+    if (!notifyAllowed("chat")) return;
+    const row = document.createElement("div");
+    row.className = "msg-row msg-system-wrap";
     const div = document.createElement("div");
-    div.className = "msg msg-system";
+    div.className = "msg-system";
     div.textContent = text;
-    els.messages.appendChild(div);
+    row.appendChild(div);
+    els.messages.appendChild(row);
     els.messages.scrollTop = els.messages.scrollHeight;
   }
 
-  function addChatLine(who, text) {
-    const div = document.createElement("div");
-    div.className = "msg";
+  function addChatLine(who, text, outgoing) {
+    const row = document.createElement("div");
+    row.className = "msg-row " + (outgoing ? "msg-row-out" : "msg-row-in");
+    const bubble = document.createElement("div");
+    bubble.className = "msg-bubble " + (outgoing ? "msg-bubble-out" : "msg-bubble-in");
     const meta = document.createElement("div");
     meta.className = "msg-meta";
     meta.textContent = who;
     const body = document.createElement("div");
     body.textContent = text;
-    div.appendChild(meta);
-    div.appendChild(body);
-    els.messages.appendChild(div);
+    bubble.appendChild(meta);
+    bubble.appendChild(body);
+    row.appendChild(bubble);
+    els.messages.appendChild(row);
     els.messages.scrollTop = els.messages.scrollHeight;
+    if (roomIdActive) {
+      upsertRecent({ id: roomIdActive, title: els.chatPeerTitle ? els.chatPeerTitle.textContent : roomIdActive, lastText: text, ts: Date.now() });
+    }
   }
 
   function sendRaw(obj) {
@@ -263,6 +520,11 @@
 
   async function applyPeerHandshake(msg) {
     if (cryptoState.ready) return;
+    if (msg && msg.name) {
+      peerDisplayName = msg.name;
+      if (els.chatPeerTitle) els.chatPeerTitle.textContent = peerDisplayName;
+      if (roomIdActive) upsertRecent({ id: roomIdActive, title: peerDisplayName, ts: Date.now() });
+    }
     cryptoState.peerPublic = await crypto.subtle.importKey("jwk", msg.pub, { name: "ECDH", namedCurve: "P-256" }, false, []);
     if (!cryptoState.keyPair) return;
 
@@ -273,7 +535,11 @@
     );
     cryptoState.aesKey = await crypto.subtle.importKey("raw", bits, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
     cryptoState.ready = true;
-    addSystemLine("Канал зашифрован (AES-GCM, эфемерный ECDH). История только в этой вкладке.");
+    addSystemLine(
+      lang === "en"
+        ? "End-to-end encryption active. Keys exist only in this tab."
+        : "Сквозное шифрование включено. Ключи только в этой вкладке."
+    );
     els.inputMessage.disabled = false;
     els.btnSend.disabled = false;
     updateCallButtonState();
@@ -287,6 +553,11 @@
       return;
     }
     if (msg.t === "hs") {
+      if (msg.name) {
+        peerDisplayName = msg.name;
+        if (els.chatPeerTitle) els.chatPeerTitle.textContent = peerDisplayName;
+        if (roomIdActive) upsertRecent({ id: roomIdActive, title: peerDisplayName, ts: Date.now() });
+      }
       if (!cryptoState.keyPair) {
         pendingPeerHs = msg;
         return;
@@ -300,10 +571,10 @@
         const data = ub64(msg.d);
         const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, cryptoState.aesKey, data);
         const text = new TextDecoder().decode(plain);
-        addChatLine("Собеседник", text);
+        addChatLine(peerDisplayName || t("peerFallback"), text, false);
       } catch (e) {
         console.error("Decrypt failed", e);
-        addSystemLine("Не удалось расшифровать сообщение.");
+        addSystemLine(lang === "en" ? "Could not decrypt message." : "Не удалось расшифровать сообщение.");
       }
     }
   }
@@ -319,7 +590,9 @@
       if (dataConn === conn) dataConn = null;
       scheduleGuestReconnect(
         rid,
-        "Нет ответа от создателя комнаты. Он должен первым открыть страницу и нажать «Создать комнату», затем отправить вам ссылку."
+        lang === "en"
+          ? "Host not responding. They must open the room first and keep this tab open."
+          : "Нет ответа от создателя. Он должен первым открыть комнату и не закрывать вкладку."
       );
     }, 14000);
   }
@@ -330,9 +603,11 @@
 
     guestConnectFailures++;
     if (guestConnectFailures > GUEST_FAIL_MAX) {
-      setConnStatus("err", "Хост не найден");
+      setConnStatus("err", "—");
       addSystemLine(
-        "Частая причина — бесплатный сервер PeerJS (0.peerjs.com) или создатель закрыл вкладку до вашего входа. Пусть хост снова нажмёт «Создать комнату», вы откройте новую ссылку сразу после этого."
+        lang === "en"
+          ? "Could not reach host. Free PeerJS is unstable — both try again: host creates a new room, guest opens the new link."
+          : "Не удалось связаться. Бесплатный PeerJS нестабилен: хост создаёт комнату заново, гость открывает новую ссылку."
       );
       return;
     }
@@ -340,7 +615,7 @@
     if (hint) addSystemLine(hint);
 
     const delay = Math.min(1800 + guestConnectFailures * 220, 9000);
-    setConnStatus("wait", `Ищем собеседника… ${guestConnectFailures}/${GUEST_FAIL_MAX}`);
+    setConnStatus("wait", `${guestConnectFailures}/${GUEST_FAIL_MAX}`);
 
     clearGuestRetry();
     guestRetryTimer = setTimeout(() => {
@@ -371,27 +646,28 @@
     conn.on("open", () => {
       clearGuestRetry();
       guestConnectFailures = 0;
-      console.log("DrazzeAnonim: DataChannel открыт — P2P готов.");
-      setConnStatus("ok", "В чате");
+      console.log("DrazzeAnonim: DataChannel open");
+      setConnStatus("ok", "●");
       beginHandshake().catch((e) => console.error(e));
     });
 
     conn.on("data", onChannelData);
     conn.on("close", () => {
-      addSystemLine("Собеседник отключился или канал закрыт.");
-      setConnStatus("err", "Отключено");
+      addSystemLine(lang === "en" ? "Chat closed." : "Чат закрыт.");
+      setConnStatus("err", "—");
       els.inputMessage.disabled = true;
       els.btnSend.disabled = true;
     });
     conn.on("error", (e) => {
-      console.error("DataConnection error", e);
       if (!isHost && roomIdActive && dataConn === conn && !conn.open) {
         clearGuestRetry();
         try {
           conn.close();
         } catch (_) {}
         dataConn = null;
-        scheduleGuestReconnect(roomIdActive, "Ошибка канала данных, пробуем снова…");
+        scheduleGuestReconnect(roomIdActive, lang === "en" ? "Retrying…" : "Повтор подключения…");
+      } else {
+        console.error("DataConnection error", e);
       }
     });
   }
@@ -403,7 +679,7 @@
     });
     call.on("close", () => {
       cleanupCall();
-      addSystemLine("Звонок завершён.");
+      if (notifyAllowed("call")) addSystemLine(lang === "en" ? "Call ended." : "Звонок завершён.");
     });
     call.on("error", (e) => console.error("MediaConnection error", e));
   }
@@ -424,20 +700,19 @@
         wireMediaCall(call);
         els.btnCall.classList.add("hidden");
         els.btnHangup.classList.remove("hidden");
-        addSystemLine("Входящий звонок — микрофон и камера подключены.");
+        if (notifyAllowed("call")) addSystemLine(lang === "en" ? "Incoming call answered." : "Входящий звонок принят.");
       })
       .catch((e) => {
         console.error(e);
-        addSystemLine("Нет доступа к камере/микрофону. Разрешите доступ в браузере.");
+        if (notifyAllowed("call"))
+          addSystemLine(lang === "en" ? "Camera/mic permission denied." : "Нет доступа к камере/микрофону.");
         hideCallDock();
       });
   }
 
   function updateCallButtonState() {
     const can =
-      peer &&
-      peer.open &&
-      (isHost ? dataConn && dataConn.open && !!callTargetId : !!callTargetId);
+      peer && peer.open && (isHost ? dataConn && dataConn.open && !!callTargetId : !!callTargetId);
     els.btnCall.disabled = !can;
   }
 
@@ -450,11 +725,12 @@
       wireMediaCall(call);
       els.btnCall.classList.add("hidden");
       els.btnHangup.classList.remove("hidden");
-      addSystemLine("Звонок… ждём ответа собеседника.");
+      if (notifyAllowed("call")) addSystemLine(lang === "en" ? "Calling…" : "Звонок…");
     } catch (e) {
       console.error(e);
       hideCallDock();
-      addSystemLine("Не удалось получить камеру/микрофон или начать звонок. Проверьте разрешения браузера.");
+      if (notifyAllowed("call"))
+        addSystemLine(lang === "en" ? "Could not start call." : "Не удалось начать звонок.");
     }
   }
 
@@ -462,17 +738,26 @@
     if (!roomIdActive) return;
     const url = `${window.location.origin}${window.location.pathname}#${roomIdActive}`;
     navigator.clipboard.writeText(url).then(
-      () => addSystemLine("Ссылка скопирована."),
-      () => addSystemLine("Скопируйте вручную: " + url)
+      () => addSystemLine(t("inviteCopied")),
+      () => addSystemLine(t("inviteManual") + url)
     );
+  }
+
+  function isRecoverableGuestError(err) {
+    const msg = (err && err.message) || String(err || "");
+    const type = err && err.type;
+    if (type === "peer-unavailable" || type === "network") return true;
+    return /could not connect|peer-unavailable|unavailable|socket|network|connection/i.test(msg);
   }
 
   function bindPeerCommon(p) {
     p.on("error", (err) => {
       const msg = err.message || String(err);
-      console.error("Peer error", err);
 
-      if (!isHost && roomIdActive && /could not connect/i.test(msg)) {
+      if (!isHost && roomIdActive && isRecoverableGuestError(err)) {
+        if (typeof console !== "undefined" && console.debug) {
+          console.debug("DrazzeAnonim: recoverable peer error (retrying)", msg);
+        }
         if (dataConn && !dataConn.open) {
           try {
             dataConn.close();
@@ -482,28 +767,31 @@
         clearGuestRetry();
         scheduleGuestReconnect(
           roomIdActive,
-          "Сервер сигнализации не видит создателя комнаты (часто на 0.peerjs.com). Повторяем. Убедитесь, что у друга открыта вкладка с комнатой."
+          lang === "en"
+            ? "Signaling could not find the host yet — retrying. Host tab must stay open."
+            : "Сигналинг пока не видит хоста — повтор. Вкладка создателя должна быть открыта."
         );
         return;
       }
 
-      addSystemLine("PeerJS: " + msg);
-      setConnStatus("err", "Ошибка сети");
+      if (notifyAllowed("chat")) addSystemLine("PeerJS: " + msg);
+      setConnStatus("err", "!");
+      if (typeof console !== "undefined" && console.warn) console.warn("Peer error", err);
     });
 
     p.on("disconnected", () => {
-      addSystemLine("Связь с сигнальным сервером прервалась.");
-      setConnStatus("wait", "Сигналинг…");
+      if (notifyAllowed("chat")) addSystemLine(lang === "en" ? "Signaling disconnected." : "Сигналинг отключён.");
+      setConnStatus("wait", "…");
       if (isHost && peer) {
         try {
           peer.reconnect();
-          addSystemLine("Переподключение хоста к PeerServer…");
         } catch (e) {
           console.error(e);
         }
       } else {
-        setConnStatus("err", "Обновите страницу");
-        addSystemLine("Гостю нужно обновить страницу и снова открыть ссылку.");
+        setConnStatus("err", "—");
+        if (notifyAllowed("chat"))
+          addSystemLine(lang === "en" ? "Reload and open the link again." : "Обновите страницу и откройте ссылку снова.");
       }
     });
 
@@ -512,24 +800,27 @@
 
   function createRoom() {
     showLobbyError("");
-    displayName = els.inputName.value.trim();
+    displayName = (els.inputName && els.inputName.value.trim()) || (els.profileNick && els.profileNick.value.trim()) || "";
     const id = makeRoomId();
     isHost = true;
     roomIdActive = id;
     callTargetId = null;
     resetCrypto();
     showRoomScreen(id);
+    upsertRecent({ id, title: lang === "en" ? "Room " + shortRoom(id) : "Комната " + shortRoom(id), ts: Date.now() });
+    if (els.chatPeerTitle) els.chatPeerTitle.textContent = t("peerFallback");
 
     els.roomHint.hidden = false;
     els.roomHint.textContent =
-      "Отправьте ссылку другу. Пусть он откроет её, когда эта вкладка уже открыта — иначе «Could not connect to peer».";
+      lang === "en"
+        ? "Share the link. Your friend opens it while this tab stays open."
+        : "Отправьте ссылку. Друг открывает её, пока эта вкладка открыта.";
 
     peer = new Peer(id, PEER_OPTIONS);
     bindPeerCommon(peer);
 
-    peer.on("open", (openedId) => {
-      console.log("DrazzeAnonim: хост зарегистрирован как", openedId);
-      addSystemLine("Комната активна. Можно отправлять ссылку.");
+    peer.on("open", () => {
+      addSystemLine(lang === "en" ? "Room is live. You can share the link." : "Комната активна. Можно отправить ссылку.");
       updateCallButtonState();
     });
 
@@ -542,10 +833,10 @@
 
   function joinRoom(remoteId) {
     showLobbyError("");
-    displayName = els.inputName.value.trim();
+    displayName = (els.inputName && els.inputName.value.trim()) || (els.profileNick && els.profileNick.value.trim()) || "";
     const rid = (remoteId || els.inputRoom.value).trim();
     if (!rid) {
-      showLobbyError("Укажите ID комнаты.");
+      showLobbyError(lang === "en" ? "Enter room ID." : "Укажите ID комнаты.");
       return;
     }
     isHost = false;
@@ -553,16 +844,18 @@
     callTargetId = rid;
     resetCrypto();
     showRoomScreen(rid);
+    upsertRecent({ id: rid, title: lang === "en" ? "Chat " + shortRoom(rid) : "Чат " + shortRoom(rid), ts: Date.now() });
 
     els.roomHint.hidden = false;
     els.roomHint.textContent =
-      "Сначала друг должен создать комнату и оставить страницу открытой. Мы будем повторять подключение автоматически.";
+      lang === "en"
+        ? "Waiting for host. We retry automatically."
+        : "Ждём создателя комнаты. Повторяем подключение автоматически.";
 
     peer = new Peer(PEER_OPTIONS);
     bindPeerCommon(peer);
 
     peer.on("open", () => {
-      console.log("DrazzeAnonim: клиент на сигналинге, подключаемся к", rid);
       guestConnectFailures = 0;
       tryGuestDataConnect(rid);
       updateCallButtonState();
@@ -576,26 +869,91 @@
       .encrypt({ name: "AES-GCM", iv }, cryptoState.aesKey, new TextEncoder().encode(text))
       .then((ct) => {
         sendRaw({ t: "m", iv: b64(iv), d: b64(new Uint8Array(ct)) });
-        addChatLine(displayName || "Вы", text);
+        addChatLine(displayName || (lang === "en" ? "You" : "Вы"), text, true);
       })
       .catch((e) => console.error(e));
   }
 
+  document.querySelectorAll(".nav-item[data-nav]").forEach((btn) => {
+    btn.addEventListener("click", () => navigateTo(btn.getAttribute("data-nav")));
+  });
+
+  document.querySelectorAll(".calls-filter").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".calls-filter").forEach((b) => b.classList.remove("is-active"));
+      btn.classList.add("is-active");
+    });
+  });
+
+  if (els.btnToggleNew && els.newChatDrawer) {
+    els.btnToggleNew.addEventListener("click", () => {
+      const open = els.newChatDrawer.classList.toggle("hidden");
+      els.btnToggleNew.setAttribute("aria-expanded", String(!open));
+    });
+  }
+
+  if (els.chatListSearch) els.chatListSearch.addEventListener("input", renderChatList);
+  if (els.contactsSearch) els.contactsSearch.addEventListener("input", renderContacts);
+
+  if (els.btnSaveProfile) {
+    els.btnSaveProfile.addEventListener("click", () => {
+      saveProfile();
+      const ok = document.createElement("p");
+      ok.className = "tg-hint-list";
+      ok.style.marginTop = "0.5rem";
+      ok.textContent = lang === "en" ? "Saved on this device." : "Сохранено на этом устройстве.";
+      els.btnSaveProfile.insertAdjacentElement("afterend", ok);
+      setTimeout(() => ok.remove(), 2200);
+    });
+  }
+
+  if (els.btnInviteRef) {
+    els.btnInviteRef.addEventListener("click", () => {
+      const url = window.location.origin + window.location.pathname;
+      const text = t("appInvite") + url;
+      navigator.clipboard.writeText(text).then(
+        () => {
+          const note = document.createElement("div");
+          note.className = "tg-hint-list";
+          note.textContent = t("inviteCopied");
+          els.contactsList.parentNode.insertBefore(note, els.contactsList);
+          setTimeout(() => note.remove(), 2500);
+        },
+        () => alert(text)
+      );
+    });
+  }
+
+  if (els.setLang) {
+    els.setLang.addEventListener("change", () => {
+      lang = els.setLang.value === "en" ? "en" : "ru";
+      saveSettings();
+      applyLangToNav();
+      renderChatList();
+    });
+  }
+
+  [els.setNotifyChat, els.setNotifyCall].forEach((el) => {
+    if (el) el.addEventListener("change", saveSettings);
+  });
+
+  if (els.profileNick) els.profileNick.addEventListener("input", updateProfileAvatar);
+
   els.btnCreate.addEventListener("click", () => createRoom());
   els.btnJoin.addEventListener("click", () => joinRoom(null));
-  els.btnLeave.addEventListener("click", () => leaveRoom());
+  els.btnBack.addEventListener("click", () => leaveRoom());
   els.btnCopy.addEventListener("click", () => copyInviteLink());
   els.btnCall.addEventListener("click", () => startOutgoingCall());
   els.btnHangup.addEventListener("click", () => {
     cleanupCall();
-    addSystemLine("Вы завершили звонок.");
+    if (notifyAllowed("call")) addSystemLine(lang === "en" ? "You ended the call." : "Вы завершили звонок.");
   });
 
   els.formSend.addEventListener("submit", (ev) => {
     ev.preventDefault();
-    const t = els.inputMessage.value.trim();
-    if (!t) return;
-    sendChatMessage(t);
+    const txt = els.inputMessage.value.trim();
+    if (!txt) return;
+    sendChatMessage(txt);
     els.inputMessage.value = "";
   });
 
@@ -610,6 +968,12 @@
       joinRoom(fromHash);
     }
   }
+
+  loadSettings();
+  loadProfile();
+  applyLangToNav();
+  renderChatList();
+  renderContacts();
 
   if (document.readyState === "loading") {
     window.addEventListener("DOMContentLoaded", bootFromHash);

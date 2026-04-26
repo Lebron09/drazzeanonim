@@ -2,61 +2,139 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>DrazzeAnonim — P2P чат</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231a0a2e'/%3E%3Ccircle cx='16' cy='16' r='8' fill='%23c77dff'/%3E%3C/svg%3E" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>DrazzeAnonim</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231a0a2e'/%3E%3Ccircle cx='16' cy='16' r='8' fill='%235b8cff'/%3E%3C/svg%3E" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <div class="bg-grid"></div>
-  <div class="glow glow-1"></div>
-  <div class="glow glow-2"></div>
+  <div id="app" class="app">
+    <div id="pane-shell" class="pane-shell">
+      <header class="tg-top">
+        <span class="tg-brand">Drazze<span class="tg-brand-accent">Anonim</span></span>
+        <span class="tg-sub">P2P · без сервера сообщений</span>
+      </header>
 
-  <header class="header">
-    <h1 class="logo">Drazze<span class="logo-accent">Anonim</span></h1>
-    <p class="tagline">Прямой P2P · эфемерные ключи · без истории на сервере</p>
-  </header>
-
-  <main class="main">
-    <section id="screen-lobby" class="panel">
-      <label class="field">
-        <span class="field-label">Ваше имя (необязательно)</span>
-        <input type="text" id="input-name" maxlength="32" placeholder="Гость" autocomplete="off" />
-      </label>
-      <div class="lobby-actions">
-        <button type="button" id="btn-create" class="btn btn-primary">Создать комнату</button>
-        <div class="divider"><span>или</span></div>
-        <label class="field">
-          <span class="field-label">ID комнаты</span>
-          <input type="text" id="input-room" placeholder="Вставьте ID или откройте ссылку-приглашение" autocomplete="off" />
-        </label>
-        <button type="button" id="btn-join" class="btn btn-secondary">Войти в комнату</button>
-      </div>
-      <p id="lobby-error" class="error" hidden></p>
-    </section>
-
-    <section id="screen-room" class="panel panel-room hidden">
-      <div class="room-bar">
-        <div class="room-info">
-          <span class="room-label">Комната</span>
-          <code id="room-id-display" class="room-id"></code>
-          <span id="conn-status" class="status status-wait">Подключение…</span>
+      <div id="view-chats" class="tg-view">
+        <div class="tg-search-row">
+          <input type="search" id="chat-list-search" class="tg-search" placeholder="Поиск по чатам" autocomplete="off" />
+          <button type="button" id="btn-toggle-new" class="tg-icon-btn" title="Новый чат" aria-expanded="false">＋</button>
         </div>
-        <div class="room-actions">
-          <button type="button" id="btn-copy-link" class="btn btn-ghost btn-sm">Ссылка</button>
-          <button type="button" id="btn-call" class="btn btn-accent btn-sm" title="Видеозвонок">Видео</button>
-          <button type="button" id="btn-hangup" class="btn btn-ghost btn-sm hidden">Сбросить звонок</button>
-          <button type="button" id="btn-leave" class="btn btn-danger btn-sm">Выйти</button>
+
+        <div id="new-chat-drawer" class="new-chat-drawer hidden">
+          <label class="tg-field">
+            <span class="tg-label">Имя в чате</span>
+            <input type="text" id="input-name" maxlength="32" placeholder="Как вас видят" autocomplete="off" />
+          </label>
+          <button type="button" id="btn-create" class="tg-btn tg-btn-primary">Новая комната</button>
+          <label class="tg-field">
+            <span class="tg-label">ID или ссылка</span>
+            <input type="text" id="input-room" placeholder="dra…" autocomplete="off" />
+          </label>
+          <button type="button" id="btn-join" class="tg-btn tg-btn-secondary">Войти в комнату</button>
+          <p id="lobby-error" class="tg-error" hidden></p>
+        </div>
+
+        <ul id="chat-list" class="chat-list" role="list"></ul>
+        <p class="tg-hint-list">Анонимные комнаты: история только в этой вкладке. Создатель должен быть онлайн до входа гостя.</p>
+      </div>
+
+      <div id="view-calls" class="tg-view hidden">
+        <div class="calls-filters" role="tablist">
+          <button type="button" class="calls-filter is-active" data-call-filter="all">Все</button>
+          <button type="button" class="calls-filter" data-call-filter="in">Входящие</button>
+          <button type="button" class="calls-filter" data-call-filter="out">Исходящие</button>
+          <button type="button" class="calls-filter" data-call-filter="missed">Пропущенные</button>
+        </div>
+        <div id="calls-empty" class="tg-empty">
+          <p>Звонков пока нет</p>
+          <small>P2P-видео доступно из открытого чата</small>
         </div>
       </div>
+
+      <div id="view-contacts" class="tg-view hidden">
+        <input type="search" id="contacts-search" class="tg-search" placeholder="Поиск" autocomplete="off" />
+        <button type="button" id="btn-invite-ref" class="tg-btn tg-btn-primary tg-mt">Пригласить (ссылка на приложение)</button>
+        <ul id="contacts-list" class="chat-list" role="list"></ul>
+        <p class="tg-hint-list">Контакты строятся из недавних комнат на этом устройстве.</p>
+      </div>
+
+      <div id="view-profile" class="tg-view hidden">
+        <div class="profile-card">
+          <div id="profile-avatar" class="profile-avatar" aria-hidden="true">?</div>
+          <label class="tg-field">
+            <span class="tg-label">Никнейм</span>
+            <input type="text" id="profile-nick" maxlength="32" placeholder="Гость" autocomplete="off" />
+          </label>
+          <label class="tg-field">
+            <span class="tg-label">О себе</span>
+            <textarea id="profile-bio" class="tg-textarea" rows="3" maxlength="140" placeholder="Видно только вам (локально)"></textarea>
+          </label>
+          <button type="button" id="btn-save-profile" class="tg-btn tg-btn-primary">Сохранить профиль</button>
+        </div>
+        <div class="settings-block">
+          <h3 class="settings-title">Настройки</h3>
+          <label class="tg-check">
+            <input type="checkbox" id="set-notify-chat" checked />
+            Уведомления в чате (системные сообщения)
+          </label>
+          <label class="tg-check">
+            <input type="checkbox" id="set-notify-call" checked />
+            Подсказки по звонкам
+          </label>
+          <label class="tg-field tg-mt">
+            <span class="tg-label">Язык интерфейса</span>
+            <select id="set-lang" class="tg-select">
+              <option value="ru">Русский</option>
+              <option value="en">English</option>
+            </select>
+          </label>
+        </div>
+      </div>
+
+      <nav class="bottom-nav" aria-label="Разделы">
+        <button type="button" class="nav-item is-active" data-nav="chats">
+          <span class="nav-ic" aria-hidden="true">💬</span>
+          <span class="nav-t">Чаты</span>
+        </button>
+        <button type="button" class="nav-item" data-nav="calls">
+          <span class="nav-ic" aria-hidden="true">📞</span>
+          <span class="nav-t">Звонки</span>
+        </button>
+        <button type="button" class="nav-item" data-nav="contacts">
+          <span class="nav-ic" aria-hidden="true">👤</span>
+          <span class="nav-t">Контакты</span>
+        </button>
+        <button type="button" class="nav-item" data-nav="profile">
+          <span class="nav-ic" aria-hidden="true">⚙️</span>
+          <span class="nav-t">Профиль</span>
+        </button>
+      </nav>
+    </div>
+
+    <section id="pane-chat" class="pane-chat hidden" aria-hidden="true">
+      <header class="chat-header">
+        <button type="button" id="btn-back" class="tg-back" aria-label="Назад">‹</button>
+        <div class="chat-header-info">
+          <div id="chat-peer-title" class="chat-title">Чат</div>
+          <div class="chat-meta">
+            <code id="room-id-display" class="room-id-chip"></code>
+            <span id="conn-status" class="conn-pill conn-wait">…</span>
+          </div>
+        </div>
+        <div class="chat-header-actions">
+          <button type="button" id="btn-copy-link" class="tg-icon-btn" title="Ссылка">🔗</button>
+          <button type="button" id="btn-call" class="tg-icon-btn tg-call" title="Видео" disabled>📹</button>
+          <button type="button" id="btn-hangup" class="tg-icon-btn hidden" title="Сбросить">⏹</button>
+        </div>
+      </header>
       <p id="room-hint" class="room-hint" hidden></p>
 
-      <div class="chat-layout">
+      <div class="chat-body">
         <div id="messages" class="messages" aria-live="polite"></div>
-
         <div id="call-dock" class="call-dock hidden" aria-hidden="true">
           <div class="video-wrap">
             <video id="video-local" playsinline muted autoplay></video>
@@ -67,18 +145,14 @@
             <span class="video-label">Собеседник</span>
           </div>
         </div>
-
-        <form id="form-send" class="compose">
-          <input type="text" id="input-message" placeholder="Напишите сообщение…" autocomplete="off" disabled />
-          <button type="submit" class="btn btn-primary" id="btn-send" disabled>Отправить</button>
-        </form>
       </div>
-    </section>
-  </main>
 
-  <footer class="footer">
-    <small>Только сигнализация через PeerJS. Сообщения и медиа — напрямую между браузерами.</small>
-  </footer>
+      <form id="form-send" class="compose-bar">
+        <input type="text" id="input-message" class="compose-input" placeholder="Сообщение" autocomplete="off" disabled />
+        <button type="submit" class="tg-send" id="btn-send" disabled>➤</button>
+      </form>
+    </section>
+  </div>
 
   <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
   <script src="app.js"></script>
