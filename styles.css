@@ -104,7 +104,7 @@ body {
 .main {
   position: relative;
   z-index: 1;
-  max-width: 720px;
+  max-width: 560px;
   margin: 0 auto;
   padding: 0 1rem 3rem;
 }
@@ -253,6 +253,11 @@ input[type="text"]:disabled {
   background: rgba(255, 77, 109, 0.25);
 }
 
+.btn-sm {
+  padding: 0.45rem 0.75rem;
+  font-size: 0.82rem;
+}
+
 .error {
   margin-top: 1rem;
   padding: 0.75rem;
@@ -323,18 +328,45 @@ input[type="text"]:disabled {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
+  align-items: center;
 }
 
-.media-row {
+.room-hint {
+  margin: 0 0 0.75rem;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+
+.panel-room {
+  display: flex;
+  flex-direction: column;
+  min-height: min(72vh, 640px);
+}
+
+.chat-layout {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  gap: 0.75rem;
+}
+
+.call-dock {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 0.75rem;
-  margin-bottom: 1rem;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.call-dock.hidden {
+  display: none !important;
 }
 
 .video-wrap {
   position: relative;
-  aspect-ratio: 4/3;
+  aspect-ratio: 16/10;
+  max-height: 160px;
   background: rgba(0, 0, 0, 0.45);
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -351,7 +383,7 @@ input[type="text"]:disabled {
   position: absolute;
   bottom: 6px;
   left: 8px;
-  font-size: 0.7rem;
+  font-size: 0.65rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--text-dim);
@@ -359,11 +391,11 @@ input[type="text"]:disabled {
 }
 
 .messages {
-  min-height: 200px;
-  max-height: 360px;
+  flex: 1 1 auto;
+  min-height: 220px;
+  max-height: min(50vh, 420px);
   overflow-y: auto;
   padding: 0.75rem;
-  margin-bottom: 1rem;
   background: rgba(5, 2, 12, 0.6);
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -395,10 +427,17 @@ input[type="text"]:disabled {
 .compose {
   display: flex;
   gap: 0.5rem;
+  flex-shrink: 0;
+  margin-top: auto;
 }
 
 .compose input {
   flex: 1;
+}
+
+.compose .btn-primary {
+  width: auto;
+  min-width: 7rem;
 }
 
 .footer {
@@ -411,16 +450,20 @@ input[type="text"]:disabled {
 }
 
 @media (max-width: 600px) {
-  .media-row {
+  .call-dock {
     grid-template-columns: 1fr;
+  }
+
+  .video-wrap {
+    max-height: 140px;
   }
 
   .room-actions {
     width: 100%;
   }
 
-  .room-actions .btn {
+  .room-actions .btn-sm {
     flex: 1;
-    min-width: calc(50% - 0.25rem);
+    min-width: calc(33% - 0.35rem);
   }
 }

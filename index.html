@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>DrazzeAnonim — P2P чат</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231a0a2e'/%3E%3Ccircle cx='16' cy='16' r='8' fill='%23c77dff'/%3E%3C/svg%3E" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet" />
@@ -37,7 +38,7 @@
       <p id="lobby-error" class="error" hidden></p>
     </section>
 
-    <section id="screen-room" class="panel hidden">
+    <section id="screen-room" class="panel panel-room hidden">
       <div class="room-bar">
         <div class="room-info">
           <span class="room-label">Комната</span>
@@ -45,30 +46,33 @@
           <span id="conn-status" class="status status-wait">Подключение…</span>
         </div>
         <div class="room-actions">
-          <button type="button" id="btn-copy-link" class="btn btn-ghost">Скопировать ссылку</button>
-          <button type="button" id="btn-call" class="btn btn-accent">Позвонить</button>
-          <button type="button" id="btn-hangup" class="btn btn-ghost hidden">Завершить звонок</button>
-          <button type="button" id="btn-leave" class="btn btn-danger">Покинуть комнату</button>
+          <button type="button" id="btn-copy-link" class="btn btn-ghost btn-sm">Ссылка</button>
+          <button type="button" id="btn-call" class="btn btn-accent btn-sm" title="Видеозвонок">Видео</button>
+          <button type="button" id="btn-hangup" class="btn btn-ghost btn-sm hidden">Сбросить звонок</button>
+          <button type="button" id="btn-leave" class="btn btn-danger btn-sm">Выйти</button>
         </div>
       </div>
+      <p id="room-hint" class="room-hint" hidden></p>
 
-      <div class="media-row">
-        <div class="video-wrap">
-          <video id="video-local" playsinline muted autoplay></video>
-          <span class="video-label">Вы</span>
+      <div class="chat-layout">
+        <div id="messages" class="messages" aria-live="polite"></div>
+
+        <div id="call-dock" class="call-dock hidden" aria-hidden="true">
+          <div class="video-wrap">
+            <video id="video-local" playsinline muted autoplay></video>
+            <span class="video-label">Вы</span>
+          </div>
+          <div class="video-wrap">
+            <video id="video-remote" playsinline autoplay></video>
+            <span class="video-label">Собеседник</span>
+          </div>
         </div>
-        <div class="video-wrap">
-          <video id="video-remote" playsinline autoplay></video>
-          <span class="video-label">Собеседник</span>
-        </div>
+
+        <form id="form-send" class="compose">
+          <input type="text" id="input-message" placeholder="Напишите сообщение…" autocomplete="off" disabled />
+          <button type="submit" class="btn btn-primary" id="btn-send" disabled>Отправить</button>
+        </form>
       </div>
-
-      <div id="messages" class="messages" aria-live="polite"></div>
-
-      <form id="form-send" class="compose">
-        <input type="text" id="input-message" placeholder="Сообщение…" autocomplete="off" disabled />
-        <button type="submit" class="btn btn-primary" id="btn-send" disabled>Отправить</button>
-      </form>
     </section>
   </main>
 

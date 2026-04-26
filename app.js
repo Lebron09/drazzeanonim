@@ -6,8 +6,10 @@
     port: 443,
     path: "/",
     secure: true,
-    debug: 1,
+    debug: 0,
   };
+
+  const GUEST_FAIL_MAX = 40;
 
   /** @type {Peer | null} */
   let peer = null;
@@ -24,6 +26,10 @@
   let callTargetId = null;
 
   let displayName = "";
+
+  let guestConnectFailures = 0;
+  /** @type {ReturnType<typeof setTimeout> | null} */
+  let guestRetryTimer = null;
 
   const cryptoState = {
     /** @type {CryptoKeyPair | null} */
@@ -55,6 +61,8 @@
     roomIdDisplay: document.getElementById("room-id-display"),
     connStatus: document.getElementById("conn-status"),
     lobbyError: document.getElementById("lobby-error"),
+    roomHint: document.getElementById("room-hint"),
+    callDock: document.getElementById("call-dock"),
     videoLocal: document.getElementById("video-local"),
     videoRemote: document.getElementById("video-remote"),
     divider: document.querySelector(".divider"),
@@ -99,6 +107,13 @@
     if (els.divider) els.divider.style.display = "none";
   }
 
+  function clearGuestRetry() {
+    if (guestRetryTimer) {
+      clearTimeout(guestRetryTimer);
+      guestRetryTimer = null;
+    }
+  }
+
   function showRoomScreen(id) {
     els.screenLobby.classList.add("hidden");
     els.screenRoom.classList.remove("hidden");
@@ -108,6 +123,8 @@
     els.inputMessage.value = "";
     els.inputMessage.disabled = true;
     els.btnSend.disabled = true;
+    guestConnectFailures = 0;
+    clearGuestRetry();
   }
 
   function showLobbyScreen() {
@@ -117,6 +134,7 @@
     els.btnCreate.hidden = false;
     if (els.divider) els.divider.style.display = "";
     els.connStatus.className = "status status-wait";
+    els.roomHint.hidden = true;
     resetVideosUi();
   }
 
@@ -133,6 +151,16 @@
     pendingPeerHs = null;
   }
 
+  function hideCallDock() {
+    els.callDock.classList.add("hidden");
+    els.callDock.setAttribute("aria-hidden", "true");
+  }
+
+  function showCallDock() {
+    els.callDock.classList.remove("hidden");
+    els.callDock.setAttribute("aria-hidden", "false");
+  }
+
   function resetVideosUi() {
     if (localStream) {
       localStream.getTracks().forEach((t) => t.stop());
@@ -141,6 +169,7 @@
     els.videoLocal.srcObject = null;
     els.videoRemote.srcObject = null;
     mediaCall = null;
+    hideCallDock();
     els.btnHangup.classList.add("hidden");
     els.btnCall.classList.remove("hidden");
   }
@@ -158,11 +187,14 @@
     }
     els.videoLocal.srcObject = null;
     els.videoRemote.srcObject = null;
+    hideCallDock();
     els.btnHangup.classList.add("hidden");
     els.btnCall.classList.remove("hidden");
   }
 
   function leaveRoom() {
+    clearGuestRetry();
+    guestConnectFailures = 0;
     cleanupCall();
     resetCrypto();
     if (dataConn) {
@@ -241,7 +273,7 @@
     );
     cryptoState.aesKey = await crypto.subtle.importKey("raw", bits, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
     cryptoState.ready = true;
-    addSystemLine("Канал зашифрован (AES-GCM, эфемерный ECDH P-256). История не восстановить после закрытия вкладки.");
+    addSystemLine("Канал зашифрован (AES-GCM, эфемерный ECDH). История только в этой вкладке.");
     els.inputMessage.disabled = false;
     els.btnSend.disabled = false;
     updateCallButtonState();
@@ -276,21 +308,92 @@
     }
   }
 
+  function armGuestDataTimeout(conn, rid) {
+    clearGuestRetry();
+    guestRetryTimer = setTimeout(() => {
+      guestRetryTimer = null;
+      if (conn.open) return;
+      try {
+        conn.close();
+      } catch (_) {}
+      if (dataConn === conn) dataConn = null;
+      scheduleGuestReconnect(
+        rid,
+        "Нет ответа от создателя комнаты. Он должен первым открыть страницу и нажать «Создать комнату», затем отправить вам ссылку."
+      );
+    }, 14000);
+  }
+
+  function scheduleGuestReconnect(rid, hint) {
+    if (isHost || !rid || !peer || !peer.open) return;
+    if (dataConn && dataConn.open) return;
+
+    guestConnectFailures++;
+    if (guestConnectFailures > GUEST_FAIL_MAX) {
+      setConnStatus("err", "Хост не найден");
+      addSystemLine(
+        "Частая причина — бесплатный сервер PeerJS (0.peerjs.com) или создатель закрыл вкладку до вашего входа. Пусть хост снова нажмёт «Создать комнату», вы откройте новую ссылку сразу после этого."
+      );
+      return;
+    }
+
+    if (hint) addSystemLine(hint);
+
+    const delay = Math.min(1800 + guestConnectFailures * 220, 9000);
+    setConnStatus("wait", `Ищем собеседника… ${guestConnectFailures}/${GUEST_FAIL_MAX}`);
+
+    clearGuestRetry();
+    guestRetryTimer = setTimeout(() => {
+      guestRetryTimer = null;
+      tryGuestDataConnect(rid);
+    }, delay);
+  }
+
+  function tryGuestDataConnect(rid) {
+    if (!peer || !peer.open || isHost) return;
+    if (dataConn && dataConn.open) return;
+
+    if (dataConn) {
+      try {
+        dataConn.close();
+      } catch (_) {}
+      dataConn = null;
+    }
+
+    const conn = peer.connect(rid, { reliable: true });
+    setupDataConnection(conn);
+    armGuestDataTimeout(conn, rid);
+  }
+
   function setupDataConnection(conn) {
     dataConn = conn;
+
     conn.on("open", () => {
+      clearGuestRetry();
+      guestConnectFailures = 0;
       console.log("DrazzeAnonim: DataChannel открыт — P2P готов.");
-      setConnStatus("ok", "Соединение установлено");
+      setConnStatus("ok", "В чате");
       beginHandshake().catch((e) => console.error(e));
     });
+
     conn.on("data", onChannelData);
     conn.on("close", () => {
-      addSystemLine("Канал данных закрыт.");
+      addSystemLine("Собеседник отключился или канал закрыт.");
       setConnStatus("err", "Отключено");
       els.inputMessage.disabled = true;
       els.btnSend.disabled = true;
     });
-    conn.on("error", (e) => console.error("DataConnection error", e));
+    conn.on("error", (e) => {
+      console.error("DataConnection error", e);
+      if (!isHost && roomIdActive && dataConn === conn && !conn.open) {
+        clearGuestRetry();
+        try {
+          conn.close();
+        } catch (_) {}
+        dataConn = null;
+        scheduleGuestReconnect(roomIdActive, "Ошибка канала данных, пробуем снова…");
+      }
+    });
   }
 
   function wireMediaCall(call) {
@@ -309,21 +412,24 @@
     if (localStream) return localStream;
     localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
     els.videoLocal.srcObject = localStream;
+    showCallDock();
     return localStream;
   }
 
   function onIncomingCall(call) {
+    showCallDock();
     getOrCreateLocalStream()
       .then((stream) => {
         call.answer(stream);
         wireMediaCall(call);
         els.btnCall.classList.add("hidden");
         els.btnHangup.classList.remove("hidden");
-        addSystemLine("Входящий звонок принят.");
+        addSystemLine("Входящий звонок — микрофон и камера подключены.");
       })
       .catch((e) => {
         console.error(e);
-        addSystemLine("Нет доступа к камере/микрофону.");
+        addSystemLine("Нет доступа к камере/микрофону. Разрешите доступ в браузере.");
+        hideCallDock();
       });
   }
 
@@ -337,16 +443,18 @@
 
   async function startOutgoingCall() {
     if (!peer || !callTargetId) return;
+    showCallDock();
     try {
       const stream = await getOrCreateLocalStream();
       const call = peer.call(callTargetId, stream);
       wireMediaCall(call);
       els.btnCall.classList.add("hidden");
       els.btnHangup.classList.remove("hidden");
-      addSystemLine("Исходящий звонок…");
+      addSystemLine("Звонок… ждём ответа собеседника.");
     } catch (e) {
       console.error(e);
-      addSystemLine("Не удалось начать звонок (доступ к медиа или сеть).");
+      hideCallDock();
+      addSystemLine("Не удалось получить камеру/микрофон или начать звонок. Проверьте разрешения браузера.");
     }
   }
 
@@ -354,21 +462,51 @@
     if (!roomIdActive) return;
     const url = `${window.location.origin}${window.location.pathname}#${roomIdActive}`;
     navigator.clipboard.writeText(url).then(
-      () => addSystemLine("Ссылка скопирована в буфер."),
-      () => addSystemLine("Копирование не удалось — скопируйте вручную: " + url)
+      () => addSystemLine("Ссылка скопирована."),
+      () => addSystemLine("Скопируйте вручную: " + url)
     );
   }
 
   function bindPeerCommon(p) {
     p.on("error", (err) => {
+      const msg = err.message || String(err);
       console.error("Peer error", err);
-      showLobbyError(err.message || String(err));
-      setConnStatus("err", "Ошибка PeerJS");
+
+      if (!isHost && roomIdActive && /could not connect/i.test(msg)) {
+        if (dataConn && !dataConn.open) {
+          try {
+            dataConn.close();
+          } catch (_) {}
+          dataConn = null;
+        }
+        clearGuestRetry();
+        scheduleGuestReconnect(
+          roomIdActive,
+          "Сервер сигнализации не видит создателя комнаты (часто на 0.peerjs.com). Повторяем. Убедитесь, что у друга открыта вкладка с комнатой."
+        );
+        return;
+      }
+
+      addSystemLine("PeerJS: " + msg);
+      setConnStatus("err", "Ошибка сети");
     });
+
     p.on("disconnected", () => {
-      addSystemLine("Потеряно соединение с сигнальным сервером.");
-      setConnStatus("err", "Сигналинг offline");
+      addSystemLine("Связь с сигнальным сервером прервалась.");
+      setConnStatus("wait", "Сигналинг…");
+      if (isHost && peer) {
+        try {
+          peer.reconnect();
+          addSystemLine("Переподключение хоста к PeerServer…");
+        } catch (e) {
+          console.error(e);
+        }
+      } else {
+        setConnStatus("err", "Обновите страницу");
+        addSystemLine("Гостю нужно обновить страницу и снова открыть ссылку.");
+      }
     });
+
     p.on("call", onIncomingCall);
   }
 
@@ -382,11 +520,16 @@
     resetCrypto();
     showRoomScreen(id);
 
+    els.roomHint.hidden = false;
+    els.roomHint.textContent =
+      "Отправьте ссылку другу. Пусть он откроет её, когда эта вкладка уже открыта — иначе «Could not connect to peer».";
+
     peer = new Peer(id, PEER_OPTIONS);
     bindPeerCommon(peer);
 
     peer.on("open", (openedId) => {
       console.log("DrazzeAnonim: хост зарегистрирован как", openedId);
+      addSystemLine("Комната активна. Можно отправлять ссылку.");
       updateCallButtonState();
     });
 
@@ -411,13 +554,17 @@
     resetCrypto();
     showRoomScreen(rid);
 
+    els.roomHint.hidden = false;
+    els.roomHint.textContent =
+      "Сначала друг должен создать комнату и оставить страницу открытой. Мы будем повторять подключение автоматически.";
+
     peer = new Peer(PEER_OPTIONS);
     bindPeerCommon(peer);
 
     peer.on("open", () => {
-      console.log("DrazzeAnonim: клиент подключился к сигналингу, вызываем", rid);
-      const conn = peer.connect(rid, { reliable: true });
-      setupDataConnection(conn);
+      console.log("DrazzeAnonim: клиент на сигналинге, подключаемся к", rid);
+      guestConnectFailures = 0;
+      tryGuestDataConnect(rid);
       updateCallButtonState();
     });
   }
