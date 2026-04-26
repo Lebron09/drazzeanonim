@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DrazzeAnonim — P2P чат</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="bg-grid"></div>
+  <div class="glow glow-1"></div>
+  <div class="glow glow-2"></div>
+
+  <header class="header">
+    <h1 class="logo">Drazze<span class="logo-accent">Anonim</span></h1>
+    <p class="tagline">Прямой P2P · эфемерные ключи · без истории на сервере</p>
+  </header>
+
+  <main class="main">
+    <section id="screen-lobby" class="panel">
+      <label class="field">
+        <span class="field-label">Ваше имя (необязательно)</span>
+        <input type="text" id="input-name" maxlength="32" placeholder="Гость" autocomplete="off" />
+      </label>
+      <div class="lobby-actions">
+        <button type="button" id="btn-create" class="btn btn-primary">Создать комнату</button>
+        <div class="divider"><span>или</span></div>
+        <label class="field">
+          <span class="field-label">ID комнаты</span>
+          <input type="text" id="input-room" placeholder="Вставьте ID или откройте ссылку-приглашение" autocomplete="off" />
+        </label>
+        <button type="button" id="btn-join" class="btn btn-secondary">Войти в комнату</button>
+      </div>
+      <p id="lobby-error" class="error" hidden></p>
+    </section>
+
+    <section id="screen-room" class="panel hidden">
+      <div class="room-bar">
+        <div class="room-info">
+          <span class="room-label">Комната</span>
+          <code id="room-id-display" class="room-id"></code>
+          <span id="conn-status" class="status status-wait">Подключение…</span>
+        </div>
+        <div class="room-actions">
+          <button type="button" id="btn-copy-link" class="btn btn-ghost">Скопировать ссылку</button>
+          <button type="button" id="btn-call" class="btn btn-accent">Позвонить</button>
+          <button type="button" id="btn-hangup" class="btn btn-ghost hidden">Завершить звонок</button>
+          <button type="button" id="btn-leave" class="btn btn-danger">Покинуть комнату</button>
+        </div>
+      </div>
+
+      <div class="media-row">
+        <div class="video-wrap">
+          <video id="video-local" playsinline muted autoplay></video>
+          <span class="video-label">Вы</span>
+        </div>
+        <div class="video-wrap">
+          <video id="video-remote" playsinline autoplay></video>
+          <span class="video-label">Собеседник</span>
+        </div>
+      </div>
+
+      <div id="messages" class="messages" aria-live="polite"></div>
+
+      <form id="form-send" class="compose">
+        <input type="text" id="input-message" placeholder="Сообщение…" autocomplete="off" disabled />
+        <button type="submit" class="btn btn-primary" id="btn-send" disabled>Отправить</button>
+      </form>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <small>Только сигнализация через PeerJS. Сообщения и медиа — напрямую между браузерами.</small>
+  </footer>
+
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
